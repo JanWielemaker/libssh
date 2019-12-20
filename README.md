@@ -42,3 +42,4 @@ The server may be installed using
   - libssh development files:
     - Ubuntu: ``sudo apt install libshh-dev``
     - Fedora: ``sudo dnf install libshh-devel``
+    - MacOS:  ``sudo port install libssh``

@@ -60,7 +60,11 @@ The library currently support _login_  to   the  Prolog  process. Future
 versions may also use the client access   and  exploit the SSH subsystem
 interface to achieve safe interaction between Prolog peers.
 
-@tbd Currently only supported on Linux
+@tbd Currently only supports Unix. A Windows port is probably doable. It
+mostly requires finding a  sensible  replacement   for  the  Unix pseudo
+terminal.
+
+@tbd Implement running other commands than the Prolog toplevel.
 */
 
 :- multifile
