@@ -246,7 +246,7 @@ enable_line_editing(_In, _Out, _Err).
 
 :- if(current_predicate(el_unwrap/1)).
 disable_line_editing(_In, _Out, _Err) :-
-    el_unwrap(user_input).
+    catch(el_unwrap(user_input), _, true).
 :- endif.
 disable_line_editing(_In, _Out, _Err).
 
