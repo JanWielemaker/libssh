@@ -601,7 +601,7 @@ auth_publickey(ssh_session session,
 	char *from, *to;
 	enum ssh_keytypes_e type = SSH_KEYTYPE_UNKNOWN;
 
-	if ( from = strchr(blob, ' ') )
+	if ( (from = strchr(blob, ' ')) )
 	{ *from++ = '\0';
 
 	  if ( strcmp(blob, "ssh-rsa") == 0 )
