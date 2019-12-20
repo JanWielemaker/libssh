@@ -80,8 +80,10 @@ terminal.
          auth_methods(list(oneof([password,public_key])))
        ]).
 
-:- setting(ssh_server_port, positive_integer, 2020,
+:- setting(port, positive_integer, 2020,
            "Default port for SWI-Prolog SSH server").
+:- setting(color_term, boolean, true,
+           "Enable ANSI color output on SSH terminal").
 
 %!  ssh_server is det.
 %!  ssh_server(+PortOrOptions) is det.
@@ -135,7 +137,7 @@ ssh_server(Port) :-
     !,
     ssh_server([port(Port)]).
 ssh_server(Options) :-
-    setting(ssh_server_port, DefPort),
+    setting(port, DefPort),
     merge_options(Options,
                   [ port(DefPort),
                     bind_address(localhost)
@@ -225,8 +227,27 @@ setup_console(In, Out, Err) :-
     set_stream(Err, alias(user_error)),
     set_stream(In,  alias(current_input)),
     set_stream(Out, alias(current_output)),
+    enable_colors,
     enable_line_editing(In,Out,Err),
     true.
+
+:- if(setting(color_term, true)).
+:- use_module(library(ansi_term)).
+:- endif.
+
+%!  enable_colors is det.
+%
+%   Enable ANSI colors on the remote shell.  This is controlled by the
+%   setting `color_term`.  Note that we do not wish to inherit this as
+%   the server may have different preferences.
+
+enable_colors :-
+    stream_property(user_input, tty(true)),
+    setting(color_term, true),
+    !,
+    set_prolog_flag(color_term, true).
+enable_colors :-
+    set_prolog_flag(color_term, false).
 
 %!  enable_line_editing(+In, +Out, +Err) is det.
 %
@@ -234,11 +255,16 @@ setup_console(In, Out, Err) :-
 %   Windows console. We can also provide it   for the X11 xterm(1) based
 %   console if we use the BSD libedit based command line editor.
 
-:- if(exists_source(library(editline))).
+use_editline :-
+    exists_source(library(editline)),
+    (   current_prolog_flag(readline, editline)
+    ->  true
+    ;   \+ current_prolog_flag(readline, _)
+    ).
+
+:- if(use_editline).
 :- use_module(library(editline)).
 enable_line_editing(_In, _Out, _Err) :-
-    current_prolog_flag(readline, editline),
-    !,
     debug(ssh(server), 'Setting up line editing', []),
     el_wrap.
 :- endif.
