@@ -9,6 +9,7 @@ find_package(SWI-Prolog REQUIRED)
 find_package(LibSSH REQUIRED)
 
 check_include_files(pty.h HAVE_PTY_H)
+check_include_files(util.h HAVE_UTIL_H)
 find_library(LIBUTIL NAMES util libutil)
 
 include_directories(BEFORE ${CMAKE_CURRENT_BINARY_DIR})
