@@ -150,6 +150,7 @@ ssh_server(Options) :-
     ensure_host_keys(Options1, Options2),
     add_authorized_keys(Options2, Options3),
     add_auth_methods(Options3, Options4),
+    setup_signals(Options4),
     thread_create(ssh_server_nt(Options4), _,
                   [ alias(Alias),
                     detached(true)
@@ -206,6 +207,14 @@ add_authorized_keys(Options, [authorized_keys_file(AuthKeysFile)|Options]) :-
     access_file(AuthKeysFile, read),
     !.
 add_authorized_keys(Options, Options).
+
+%!  setup_signals(+Options)
+%
+%   Re-installs  the  `int`  signal  to   start  the  debugger.  Notably
+%   library(http/http_unix_daemon) binds this to terminates the process.
+
+setup_signals(_Options) :-
+    on_signal(int, _, debug).
 
 %!  run_client(+In, +Out, +Err, +Command) is det.
 %
