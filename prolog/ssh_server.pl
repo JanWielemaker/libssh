@@ -170,7 +170,7 @@ terminal.
 %       This file is in OpenSSH format and contains a certificate
 %       per line in the format
 %
-%         <type> <base64-key> <comment>
+%           <type> <base64-key> <comment>
 %
 %       The the file `~/.ssh/authorized_keys` is present, this will
 %       be used as default, granting anyone with access to this account
@@ -266,17 +266,17 @@ setup_signals(_Options) :-
     E = error(_,_),
     catch(on_signal(int, _, debug), E, print_message(warning, E)).
 
-%!  run_client(+In, +Out, +Err, +Command, -RetCode) is det.
+%!  run_client(+Server, +In, +Out, +Err, +Command, -RetCode) is det.
 %
-%   Run Command using I/O from  the   triple  <In,  Out, Err>. Currently
-%   Command is ignored and we always run the Prolog toplevel loop.
+%   Run Command using I/O from  the  triple   <In,  Out,  Err>  and bind
+%   RetCode to the ssh shell return code.
 
-:- public run_client/5.
+:- public run_client/6.
 
-run_client(In, Out, Err, Command, RetCode) :-
+run_client(_Server, In, Out, Err, Command, RetCode) :-
     setup_console(In, Out, Err),
-    debug(ssh(server), 'Got SSH command ~q~n', [Command]),
-    call_cleanup(ssh_toplevel(Command, RetCode), disable_line_editing).
+    call_cleanup(ssh_toplevel(Command, RetCode),
+                 shutdown_console).
 
 setup_console(In, Out, Err) :-
     set_stream(In,  alias(user_input)),
@@ -286,6 +286,9 @@ setup_console(In, Out, Err) :-
     set_stream(Out, alias(current_output)),
     enable_colors,
     enable_line_editing.
+
+shutdown_console :-
+    disable_line_editing.
 
 :- if(setting(color_term, true)).
 :- use_module(library(ansi_term)).

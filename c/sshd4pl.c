@@ -382,11 +382,12 @@ run_command(void *ptr)
 
   if ( (pltid=PL_thread_attach_engine(&attr)) > 0 )
   { fid_t fid = PL_open_foreign_frame();
-    term_t av = PL_new_term_refs(5);
+    term_t av = PL_new_term_refs(6);
     static predicate_t pred = 0;
+    atom_t sname = ctx->cdata->sdata->server->name;
 
     if ( !pred )
-      pred = PL_predicate("run_client", 5, "ssh_server");
+      pred = PL_predicate("run_client", 6, "ssh_server");
 
     if ( alias != abuf )
       PL_free(alias);
@@ -398,14 +399,18 @@ run_command(void *ptr)
     if ( ctx->cdata->sdata->user )
       PL_set_prolog_flag("ssh_user", PL_ATOM, ctx->cdata->sdata->user);
 
+    if ( !sname )
+      sname = ATOM_nil;
+
     ctx->cdata->pltid = pltid;
-    if ( PL_unify_stream(av+0, in) &&
-	 PL_unify_stream(av+1, out) &&
-	 PL_unify_stream(av+2, err) &&
-	 PL_unify_chars(av+3, PL_ATOM, (size_t)-1, command) &&
+    if ( PL_unify_atom(av+0, sname) &&
+	 PL_unify_stream(av+1, in) &&
+	 PL_unify_stream(av+2, out) &&
+	 PL_unify_stream(av+3, err) &&
+	 PL_unify_chars(av+4, PL_ATOM, (size_t)-1, command) &&
 	 PL_call_predicate(NULL, PL_Q_NORMAL, pred, av) )
     { DEBUG(1, Sdprintf("Prolog client done\n"));
-      if ( !PL_get_integer(av+4, &ctx->cdata->retcode) )
+      if ( !PL_get_integer(av+5, &ctx->cdata->retcode) )
 	ctx->cdata->retcode = 0;
     } else
     { if ( PL_exception(0) )
