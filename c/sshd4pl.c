@@ -101,6 +101,15 @@ typedef struct ssh_server
   int auth_methods;			/* SSH_AUTH_METHOD_* */
 } ssh_server;
 
+/* A userdata struct for session. */
+struct session_data_struct
+{ ssh_server *server;			/* overall server */
+  const char *user;			/* Logged in user */
+  ssh_channel channel;			/* Pointer to the session channel */
+  int auth_attempts;
+  int authenticated;
+};
+
 /* A userdata struct for channel. */
 struct channel_data_struct
 {  pid_t pid;				/* Client pid (psuedo: PID_*) */
@@ -111,18 +120,11 @@ struct channel_data_struct
    socket_t child_stderr;		/* subsystem and exec requests */
    ssh_event event;			/* Event used to poll above descriptors */
    struct winsize *winsize;		/* Terminal size struct. */
+   struct session_data_struct *sdata;	/* Session data */
    pthread_t tid;			/* Thread handling this channel */
    int pltid;				/* Prolog thread handling this channel */
    const char *term;			/* TERM variable */
    char pty_name[PTY_NAME_MAX];		/* Terminal name */
-};
-
-/* A userdata struct for session. */
-struct session_data_struct
-{ ssh_server *server;			/* overall server */
-  ssh_channel channel;			/* Pointer to the session channel */
-  int auth_attempts;
-  int authenticated;
 };
 
 
@@ -375,6 +377,8 @@ run_command(void *ptr)
       PL_set_prolog_flag("ssh_term", PL_ATOM, ctx->cdata->term);
     if ( ctx->cdata->pty_name[0] )
       PL_set_prolog_flag("ssh_tty", PL_ATOM, ctx->cdata->pty_name);
+    if ( ctx->cdata->sdata->user )
+      PL_set_prolog_flag("ssh_user", PL_ATOM, ctx->cdata->sdata->user);
 
     ctx->cdata->pltid = pltid;
     if ( PL_unify_stream(av+0, in) &&
@@ -564,7 +568,8 @@ auth_password(ssh_session session, const char *user,
     if ( !pred )
       pred = PL_predicate("verify_password", 3, "ssh_server");
 
-    if ( PL_unify_atom(av+0, sdata->server->name ? sdata->server->name : ATOM_nil) &&
+    if ( PL_unify_atom(av+0, sdata->server->name ? sdata->server->name
+						 : ATOM_nil) &&
 	 PL_unify_chars(av+1, PL_ATOM,   (size_t)-1, user) &&
 	 PL_unify_chars(av+2, PL_STRING, (size_t)-1, pass) &&
 	 PL_call_predicate(NULL, PL_Q_NORMAL, pred, av) )
@@ -579,6 +584,7 @@ auth_password(ssh_session session, const char *user,
 
     if ( accepted )
     { sdata->authenticated = 1;
+      sdata->user = strdup(user);
       return SSH_AUTH_SUCCESS;
     }
   }
@@ -652,6 +658,7 @@ auth_publickey(ssh_session session,
 	      if ( cmp == 0 )
 	      { sdata->authenticated = 1;
 		fclose(fd);
+		sdata->user = strdup(user);
 		return SSH_AUTH_SUCCESS;
 	      }
 	    }
@@ -722,6 +729,14 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
     .ws_ypixel = 0
   };
 
+  /* Our struct holding information about the session. */
+  struct session_data_struct sdata =
+  { .server        = server,
+    .channel       = NULL,
+    .auth_attempts = 0,
+    .authenticated = 0
+  };
+
   /* Our struct holding information about the channel. */
   struct channel_data_struct cdata =
   { .pid	  = 0,
@@ -732,17 +747,10 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
     .child_stderr = -1,
     .event        = NULL,
     .winsize      = &wsize,
+    .sdata        = &sdata,
     .tid          = 0,
     .pltid        = 0,
     .term         = NULL
-  };
-
-  /* Our struct holding information about the session. */
-  struct session_data_struct sdata =
-  { .server        = server,
-    .channel       = NULL,
-    .auth_attempts = 0,
-    .authenticated = 0
   };
 
   struct ssh_channel_callbacks_struct channel_cb =
@@ -837,7 +845,9 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
   if ( cdata.child_stdin > 0 ) close(cdata.child_stdin);
   close(cdata.child_stdout);
   close(cdata.child_stderr);
+
   if ( cdata.term ) free((void*)cdata.term);
+  if ( sdata.user ) free((void*)sdata.user);
 
   /* Remove the descriptors from the polling context, since they are now
    * closed, they will always trigger during the poll calls. */

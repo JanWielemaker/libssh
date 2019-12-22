@@ -73,6 +73,8 @@ following flags are defined:
     allocated for this connection.
   - ssh_term
     Provides the ``TERM`` environment variable passed from the client.
+  - ssh_user
+    Provides the name of the user logged on.
 
 If a _pseudo terminal_ is used and   the  `ssh_term` flag is not `dump`,
 library(ansi_term) is connected to provide colorized output.
