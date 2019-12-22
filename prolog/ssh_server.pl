@@ -60,6 +60,26 @@ The library currently support _login_  to   the  Prolog  process. Future
 versions may also use the client access   and  exploit the SSH subsystem
 interface to achieve safe interaction between Prolog peers.
 
+## The client session
+
+A new connection creates a Prolog   thread  that handles the connection.
+The  new  thread's  standard    streams   (`user_input`,  `user_output`,
+`user_error`, `current_input` and `current_output`) are  attached to the
+new connection. Some of the environment is   shared as Prolog flags. The
+following flags are defined:
+
+  - ssh_tty
+    Provides the name of the _pseudo terminal_ if such a terminal us
+    allocated for this connection.
+  - ssh_term
+    Provides the ``TERM`` environment variable passed from the client.
+
+If a _pseudo terminal_ is used and   the  `ssh_term` flag is not `dump`,
+library(ansi_term) is connected to provide colorized output.
+
+If a _pseudo terminal_ is used  and library(editline) is available, this
+library is used to enable command line editing.
+
 @tbd Currently only supports Unix. A Windows port is probably doable. It
 mostly requires finding a  sensible  replacement   for  the  Unix pseudo
 terminal.
@@ -214,7 +234,8 @@ add_authorized_keys(Options, Options).
 %   library(http/http_unix_daemon) binds this to terminates the process.
 
 setup_signals(_Options) :-
-    on_signal(int, _, debug).
+    E = error(_,_),
+    catch(on_signal(int, _, debug), E, print_message(warning, E)).
 
 %!  run_client(+In, +Out, +Err, +Command) is det.
 %
@@ -227,8 +248,7 @@ run_client(In, Out, Err, Command) :-
     setup_console(In, Out, Err),
     debug(ssh(server), 'Got SSH command ~q~n', [Command]),
     version,
-    call_cleanup(prolog,
-                 disable_line_editing(In, Out, Err)).
+    call_cleanup(prolog, disable_line_editing).
 
 setup_console(In, Out, Err) :-
     set_stream(In,  alias(user_input)),
@@ -237,7 +257,7 @@ setup_console(In, Out, Err) :-
     set_stream(In,  alias(current_input)),
     set_stream(Out, alias(current_output)),
     enable_colors,
-    enable_line_editing(In,Out,Err),
+    enable_line_editing,
     true.
 
 :- if(setting(color_term, true)).
@@ -253,16 +273,19 @@ setup_console(In, Out, Err) :-
 enable_colors :-
     stream_property(user_input, tty(true)),
     setting(color_term, true),
+    current_prolog_flag(ssh_term, Term),
+    Term \== dump,
     !,
     set_prolog_flag(color_term, true).
 enable_colors :-
     set_prolog_flag(color_term, false).
 
-%!  enable_line_editing(+In, +Out, +Err) is det.
+%!  enable_line_editing is det.
 %
-%   Enable line editing for the console.  This   is  by built-in for the
-%   Windows console. We can also provide it   for the X11 xterm(1) based
-%   console if we use the BSD libedit based command line editor.
+%   Enable line editing for the SSH session. We   can do this if the SSH
+%   session uses a pseudo terminal and we are using library(editline) as
+%   command line editor (GNU readline uses global variables and thus can
+%   only handle a single tty in the process).
 
 use_editline :-
     exists_source(library(editline)),
@@ -273,18 +296,23 @@ use_editline :-
 
 :- if(use_editline).
 :- use_module(library(editline)).
-enable_line_editing(_In, _Out, _Err) :-
+enable_line_editing :-
+    stream_property(user_input, tty(true)),
+    !,
     debug(ssh(server), 'Setting up line editing', []),
+    set_prolog_flag(tty_control, true),
     el_wrap.
 :- endif.
-enable_line_editing(_In, _Out, _Err).
+enable_line_editing.
 
 :- if(current_predicate(el_unwrap/1)).
-disable_line_editing(_In, _Out, _Err) :-
+disable_line_editing :-
+    el_wrapped(user_input),
+    !,
     Error = error(_,_),
     catch(el_unwrap(user_input), Error, true).
 :- endif.
-disable_line_editing(_In, _Out, _Err).
+disable_line_editing.
 
 %!  verify_password(+ServerName, +User:atom, +Passwd:string) is semidet.
 %
