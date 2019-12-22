@@ -90,6 +90,7 @@ static int debugging = 0;
 #include <stdio.h>
 
 #define BUF_SIZE 8192
+#define PTY_NAME_MAX 64
 #define SESSION_END (SSH_CLOSED | SSH_CLOSED_ERROR)
 #define SFTP_SERVER_PATH "/usr/lib/sftp-server"
 
@@ -112,6 +113,8 @@ struct channel_data_struct
    struct winsize *winsize;		/* Terminal size struct. */
    pthread_t tid;			/* Thread handling this channel */
    int pltid;				/* Prolog thread handling this channel */
+   const char *term;			/* TERM variable */
+   char pty_name[PTY_NAME_MAX];		/* Terminal name */
 };
 
 /* A userdata struct for session. */
@@ -182,16 +185,16 @@ pty_request(ssh_session session, ssh_channel channel,
 
   (void) session;
   (void) channel;
-  (void) term;
 
   cdata->winsize->ws_row = rows;
   cdata->winsize->ws_col = cols;
   cdata->winsize->ws_xpixel = px;
   cdata->winsize->ws_ypixel = py;
+  cdata->term = strdup(term);
 
-  if ( openpty(&cdata->pty_master, &cdata->pty_slave, NULL, NULL,
+  if ( openpty(&cdata->pty_master, &cdata->pty_slave, cdata->pty_name, NULL,
 	       cdata->winsize) != 0)
-  { fprintf(stderr, "Failed to open pty\n");
+  { Sdprintf("Failed to open pty\n");
     return SSH_ERROR;
   }
 
@@ -368,6 +371,11 @@ run_command(void *ptr)
     if ( !pred )
       pred = PL_predicate("run_client", 4, "ssh_server");
 
+    if ( ctx->cdata->term )
+      PL_set_prolog_flag("ssh_term", PL_ATOM, ctx->cdata->term);
+    if ( ctx->cdata->pty_name[0] )
+      PL_set_prolog_flag("ssh_tty", PL_ATOM, ctx->cdata->pty_name);
+
     ctx->cdata->pltid = pltid;
     if ( PL_unify_stream(av+0, in) &&
 	 PL_unify_stream(av+1, out) &&
@@ -516,6 +524,16 @@ shell_request(ssh_session session, ssh_channel channel, void *userdata)
     return exec_pty("-l", NULL, cdata);
 
     /* Client requested a shell without a pty, let's pretend we allow that */
+  return SSH_OK;
+}
+
+static int
+env_request(ssh_session session, ssh_channel channel,
+	    const char *env_name, const char *env_value,
+	    void *userdata)
+{ struct channel_data_struct *cdata = (struct channel_data_struct *) userdata;
+
+  DEBUG(2, Sdprintf("ENV %s=%s\n", env_name, env_value));
   return SSH_OK;
 }
 
@@ -713,7 +731,10 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
     .child_stdout = -1,
     .child_stderr = -1,
     .event        = NULL,
-    .winsize      = &wsize
+    .winsize      = &wsize,
+    .tid          = 0,
+    .pltid        = 0,
+    .term         = NULL
   };
 
   /* Our struct holding information about the session. */
@@ -731,7 +752,8 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
     .channel_shell_request_function     = shell_request,
     .channel_exec_request_function      = exec_request,
     .channel_data_function              = data_function,
-    .channel_subsystem_request_function = subsystem_request
+    .channel_env_request_function       = env_request,
+    .channel_subsystem_request_function = subsystem_request,
   };
 
   struct ssh_server_callbacks_struct server_cb =
@@ -815,6 +837,7 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
   if ( cdata.child_stdin > 0 ) close(cdata.child_stdin);
   close(cdata.child_stdout);
   close(cdata.child_stderr);
+  if ( cdata.term ) free((void*)cdata.term);
 
   /* Remove the descriptors from the polling context, since they are now
    * closed, they will always trigger during the poll calls. */
