@@ -82,6 +82,33 @@ library(ansi_term) is connected to provide colorized output.
 If a _pseudo terminal_ is used  and library(editline) is available, this
 library is used to enable command line editing.
 
+## Executing commands
+
+Using ``ssh <options> <server> <command>``,   ``<command>``  is executed
+without a terminal (unless the ``-t`` option  is given to `ssh` to force
+a terminal) and otherwise  as  a   single  Prolog  toplevel command. For
+example:
+
+```
+ssh -p 2020 localhost "writeln('Hello world')"
+Hello world
+true.
+```
+
+If the query is nondeterministic alternative answers can be requested in
+the same way as using the interactive toplevel. The exit code is defined
+as follows:
+
+  - 0
+    The query succeeded
+  - 1
+    The query failed
+  - 2
+    The query produced an exception (the system prints a backtrace)
+  - 3
+    The query itself was not syntactically correct.
+
+
 @tbd Currently only supports Unix. A Windows port is probably doable. It
 mostly requires finding a  sensible  replacement   for  the  Unix pseudo
 terminal.
@@ -239,18 +266,17 @@ setup_signals(_Options) :-
     E = error(_,_),
     catch(on_signal(int, _, debug), E, print_message(warning, E)).
 
-%!  run_client(+In, +Out, +Err, +Command) is det.
+%!  run_client(+In, +Out, +Err, +Command, -RetCode) is det.
 %
 %   Run Command using I/O from  the   triple  <In,  Out, Err>. Currently
 %   Command is ignored and we always run the Prolog toplevel loop.
 
-:- public run_client/4.
+:- public run_client/5.
 
-run_client(In, Out, Err, Command) :-
+run_client(In, Out, Err, Command, RetCode) :-
     setup_console(In, Out, Err),
     debug(ssh(server), 'Got SSH command ~q~n', [Command]),
-    version,
-    call_cleanup(prolog, disable_line_editing).
+    call_cleanup(ssh_toplevel(Command, RetCode), disable_line_editing).
 
 setup_console(In, Out, Err) :-
     set_stream(In,  alias(user_input)),
@@ -259,8 +285,7 @@ setup_console(In, Out, Err) :-
     set_stream(In,  alias(current_input)),
     set_stream(Out, alias(current_output)),
     enable_colors,
-    enable_line_editing,
-    true.
+    enable_line_editing.
 
 :- if(setting(color_term, true)).
 :- use_module(library(ansi_term)).
@@ -304,8 +329,14 @@ enable_line_editing :-
     debug(ssh(server), 'Setting up line editing', []),
     set_prolog_flag(tty_control, true),
     el_wrap.
+:- else.
+enable_line_editing :-
+    stream_property(user_input, tty(true)),
+    !,
+    set_prolog_flag(tty_control, true).
 :- endif.
-enable_line_editing.
+enable_line_editing :-
+    set_prolog_flag(tty_control, false).
 
 :- if(current_predicate(el_unwrap/1)).
 disable_line_editing :-
@@ -323,6 +354,33 @@ disable_line_editing.
 %
 %   @arg ServerName is the name provided with the name(Name) option when
 %   creating the server or the empty list.
+
+%!  ssh_toplevel(+Command, -RetCode)
+%
+%   Run the toplevel goal for the SSH  session. The default is `prolog`,
+%   running the toplevel. Otherwise  the  argument   is  processed  as a
+%   single toplevel goal.
+
+ssh_toplevel(prolog, 0) :-
+    !,
+    version,
+    prolog.
+ssh_toplevel(Command, RetCode) :-
+    catch(term_string(Query, Command, [variable_names(Bindings)]),
+          Error, true),
+    (   var(Error)
+    ->  catch_with_backtrace('$execute_query'(Query, Bindings, Truth), E2, true),
+        toplevel_finish(Truth, E2, RetCode)
+    ;   print_message(error, Error),
+        RetCode = 3
+    ).
+
+toplevel_finish(_, Error, 2) :-
+    nonvar(Error),
+    !,
+    print_message(error, Error).
+toplevel_finish(true, _, 0).
+toplevel_finish(false, _, 1).
 
 
 		 /*******************************

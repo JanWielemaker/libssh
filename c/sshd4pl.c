@@ -123,6 +123,7 @@ struct channel_data_struct
    struct session_data_struct *sdata;	/* Session data */
    pthread_t tid;			/* Thread handling this channel */
    int pltid;				/* Prolog thread handling this channel */
+   int retcode;				/* Final return code */
    const char *term;			/* TERM variable */
    char pty_name[PTY_NAME_MAX];		/* Terminal name */
 };
@@ -231,6 +232,7 @@ typedef struct cmd_context
   int	err;
   struct channel_data_struct *cdata;
   const char *command;				/* command to execute */
+  int   pty;					/* Use a PTY? */
 } cmd_context;
 
 
@@ -343,20 +345,20 @@ static IOFUNCTIONS Sssh_functions =
 };
 
 
-#define SIO_STDIO (SIO_FILE|SIO_STATIC|SIO_NOCLOSE|SIO_ISATTY| \
-		   SIO_TEXT|SIO_RECORDPOS)
+#define SIO_STDIO (SIO_FILE|SIO_NOCLOSE|SIO_TEXT|SIO_RECORDPOS)
 
 static void *
 run_command(void *ptr)
 { cmd_context *ctx = ptr;
+  int sflags = ctx->pty ? SIO_ISATTY : 0;
   IOSTREAM *in  = Snew((void*)(intptr_t)ctx->in,
-		       SIO_STDIO|SIO_LBUF|SIO_INPUT|SIO_NOFEOF,
+		       SIO_STDIO|SIO_LBUF|SIO_INPUT|SIO_NOFEOF|sflags,
 		       &Sssh_functions);
   IOSTREAM *out = Snew((void*)(intptr_t)ctx->out,
-		       SIO_STDIO|SIO_LBUF|SIO_OUTPUT|SIO_REPPL,
+		       SIO_STDIO|SIO_LBUF|SIO_OUTPUT|SIO_REPPL|sflags,
 		       &Sssh_functions);
   IOSTREAM *err = Snew((void*)(intptr_t)ctx->err,
-		       SIO_STDIO|SIO_NBUF|SIO_OUTPUT|SIO_REPPL,
+		       SIO_STDIO|SIO_NBUF|SIO_OUTPUT|SIO_REPPL|sflags,
 		       &Sssh_functions);
   PL_thread_attr_t attr = { .flags = PL_THREAD_NO_DEBUG };
   const char *command = ctx->command ? ctx->command : "prolog";
@@ -367,11 +369,11 @@ run_command(void *ptr)
 
   if ( (pltid=PL_thread_attach_engine(&attr)) )
   { fid_t fid = PL_open_foreign_frame();
-    term_t av = PL_new_term_refs(4);
+    term_t av = PL_new_term_refs(5);
     static predicate_t pred = 0;
 
     if ( !pred )
-      pred = PL_predicate("run_client", 4, "ssh_server");
+      pred = PL_predicate("run_client", 5, "ssh_server");
 
     if ( ctx->cdata->term )
       PL_set_prolog_flag("ssh_term", PL_ATOM, ctx->cdata->term);
@@ -387,6 +389,13 @@ run_command(void *ptr)
 	 PL_unify_chars(av+3, PL_ATOM, (size_t)-1, command) &&
 	 PL_call_predicate(NULL, PL_Q_NORMAL, pred, av) )
     { DEBUG(1, Sdprintf("Prolog client done\n"));
+      if ( !PL_get_integer(av+4, &ctx->cdata->retcode) )
+	ctx->cdata->retcode = 0;
+    } else
+    { if ( PL_exception(0) )
+	ctx->cdata->retcode = 2;
+      else
+	ctx->cdata->retcode = 1;
     }
 
     Sclose(in);
@@ -405,6 +414,8 @@ run_command(void *ptr)
   }
 
   ctx->cdata->pid = PID_DIED;
+  if ( ctx->command )
+    free((void*)ctx->command);
   free(ctx);
 
   return NULL;
@@ -437,7 +448,8 @@ exec_pty(const char *mode, const char *command,
   ctx->out     = cdata->pty_slave;
   ctx->err     = cdata->pty_slave;
   ctx->cdata   = cdata;
-  ctx->command = command;
+  ctx->command = command ? strdup(command) : NULL;
+  ctx->pty     = TRUE;
 
   create_detached_thread(&tid, run_command, ctx);
 
@@ -469,7 +481,8 @@ exec_nopty(const char *command, struct channel_data_struct *cdata)
   ctx->out     = out[1];
   ctx->err     = err[1];
   ctx->cdata   = cdata;
-  ctx->command = command;
+  ctx->command = command ? strdup(command) : NULL;
+  ctx->pty     = FALSE;
 
   if ( create_detached_thread(&tid, run_command, ctx) )
   { Sdprintf("pthread_create failed\n");
@@ -809,7 +822,7 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
        ssh_channel_close(sdata.channel);
 
     if ( ssh_channel_is_eof(sdata.channel) )
-    { Sdprintf("Got EOF\n");
+    { DEBUG(1, Sdprintf("Got EOF\n"));
       close(cdata.child_stdin);
       cdata.child_stdin = -1;
     }
@@ -855,7 +868,7 @@ handle_session(ssh_event event, ssh_session session, ssh_server *server)
   ssh_event_remove_fd(event, cdata.child_stderr);
 
   /* How should we use this? Was the exit status of the child process */
-  ssh_channel_request_send_exit_status(sdata.channel, 0);
+  ssh_channel_request_send_exit_status(sdata.channel, cdata.retcode);
   ssh_channel_send_eof(sdata.channel);
   ssh_channel_close(sdata.channel);
 
