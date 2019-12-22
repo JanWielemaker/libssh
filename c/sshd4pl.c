@@ -65,6 +65,7 @@ static atom_t ATOM_password;
 static atom_t ATOM_public_key;
 
 static int debugging = 0;
+static int64_t connect_count = 0;
 
 #define DEBUG(n,g) do { if ( debugging >= n ) { g; } } while(0)
 
@@ -363,17 +364,32 @@ run_command(void *ptr)
   PL_thread_attr_t attr = { .flags = PL_THREAD_NO_DEBUG };
   const char *command = ctx->command ? ctx->command : "prolog";
   int pltid;
+  char abuf[100];
+  char *alias = abuf;
 
   out->position = in->position;
   err->position = in->position;
 
-  if ( (pltid=PL_thread_attach_engine(&attr)) )
+  if ( ctx->cdata->sdata->user )
+  { size_t size = sizeof(abuf);
+    IOSTREAM *s = Sopenmem(&alias, &size, "w");
+
+    Sfprintf(s, "%s@ssh.%lld", ctx->cdata->sdata->user, ++connect_count);
+    Sputc(0, s);
+    Sclose(s);
+    attr.alias = alias;
+  }
+
+  if ( (pltid=PL_thread_attach_engine(&attr)) > 0 )
   { fid_t fid = PL_open_foreign_frame();
     term_t av = PL_new_term_refs(5);
     static predicate_t pred = 0;
 
     if ( !pred )
       pred = PL_predicate("run_client", 5, "ssh_server");
+
+    if ( alias != abuf )
+      PL_free(alias);
 
     if ( ctx->cdata->term )
       PL_set_prolog_flag("ssh_term", PL_ATOM, ctx->cdata->term);
@@ -408,6 +424,8 @@ run_command(void *ptr)
     PL_thread_destroy_engine();
   } else
   { Sfprintf(err, "ERROR: Failed to create Prolog thread\n");
+    if ( alias != abuf )
+      PL_free(alias);
     Sclose(in);
     Sclose(out);
     Sclose(err);
