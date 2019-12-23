@@ -49,11 +49,13 @@ license of program. The goal is to show the API in action.
 
 #include "config.h"
 
-#define PL_ARITY_AS_SIZE
+#define _GNU_SOURCE
+#define PL_ARITY_AS_SIZE			/* get gettid() */
 #include <SWI-Stream.h>
 #include <SWI-Prolog.h>
 #include <pthread.h>
 #include <errno.h>
+#include <unistd.h>
 
 static atom_t ATOM_name;
 static atom_t ATOM_port;
@@ -65,7 +67,6 @@ static atom_t ATOM_password;
 static atom_t ATOM_public_key;
 
 static int debugging = 0;
-static int64_t connect_count = 0;
 
 #define DEBUG(n,g) do { if ( debugging >= n ) { g; } } while(0)
 
@@ -373,8 +374,13 @@ run_command(void *ptr)
   if ( ctx->cdata->sdata->user )
   { size_t size = sizeof(abuf);
     IOSTREAM *s = Sopenmem(&alias, &size, "w");
+#ifdef HAVE_GETTID
+    int tid = gettid();
+#else
+    int tid = ctx->cdata->tid;
+#endif
 
-    Sfprintf(s, "%s@ssh.%lld", ctx->cdata->sdata->user, ++connect_count);
+    Sfprintf(s, "%s@ssh/%d", ctx->cdata->sdata->user, tid);
     Sputc(0, s);
     Sclose(s);
     attr.alias = alias;
