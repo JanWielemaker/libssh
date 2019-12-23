@@ -360,19 +360,58 @@ disable_line_editing.
 %   @arg ServerName is the name provided with the name(Name) option when
 %   creating the server or the empty list.
 
+
+		 /*******************************
+		 *            HISTORY		*
+		 *******************************/
+
+:- multifile
+    prolog:history/2.
+
 %!  load_history(+Server, -Cleanup) is det.
 %
 %   Load command line history for Server, binding Cleanup to the
 %   required command for save_history/1
 
-load_history(_, true).
-
+load_history(Server, save(File)) :-
+    history_file(Server, File,
+                 [ access(read),
+                   file_errors(fail)
+                 ]),
+    !,
+    prolog:history(user_input, load(File)).
+load_history(Server, create(Server)).
 
 %!  save_history(+Action) is det.
 %
 %   Save the history information according to action.
 
+save_history(save(File)) :-
+    catch(write_history(File), _, true),
+    !.
+save_history(create(Server)) :-
+    history_file(Server, File,
+                 [ file_errors(fail),
+                   solutions(all)
+                 ]),
+    catch(write_history(File), _, true),
+    !.
 save_history(_).
+
+write_history(File) :-
+    file_directory_name(File, Dir),
+    make_directory_path(Dir),
+    prolog:history(user_input, save(File)).
+
+history_file(Server, Path, Options) :-
+    (   Server == []
+    ->  SName = default
+    ;   SName = Server
+    ),
+    current_prolog_flag(ssh_user, User),
+    atomic_list_concat([ssh, history, SName, User], /, File),
+    absolute_file_name(user_app_config(File), Path, Options).
+
 
 
 %!  ssh_toplevel(+Command, -RetCode)
