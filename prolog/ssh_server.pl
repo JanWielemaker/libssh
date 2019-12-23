@@ -205,6 +205,16 @@ ssh_server(Options) :-
                     detached(true)
                   ]).
 
+%!  ensure_host_keys(+Options0, -Options) is det.
+%
+%   Provide a host key:
+%
+%     1. If the key file is given, use it.
+%     2. If there is a key in `etc/ssh`, use it.
+%     3. If there is a key in user_app_config('etc/ssh'), use it.
+%     4. Try to create a key in user_app_config('etc/ssh')
+%     5. Try to create a key in `etc/ssh`
+
 ensure_host_keys(Options, Options) :-
     option(host_key_file(KeyFile), Options),
     !,
@@ -223,7 +233,23 @@ ensure_host_keys(Options0, Options) :-
                          file_errors(fail)
                        ]),
     !,
-    Options = [host_key_file(Dir)|Options0].
+    directory_file_path(Dir, ssh_host_ecdsa_key, KeyFile),
+    Options = [host_key_file(KeyFile)|Options0].
+ensure_host_keys(Options0, Options) :-
+    absolute_file_name(user_app_config('etc/ssh'), Dir,
+                       [ solutions(all),
+                         file_errors(fail)
+                       ]),
+    Error = error(_,_),
+    catch(make_directory_path(Dir), Error, fail),
+    file_directory_name(Dir, P0),
+    file_directory_name(P0, ConfigDir),
+    format(string(KeyCmd), 'ssh-keygen -A -f ~w', [ConfigDir]),
+    print_message(informational, ssh_server(create_host_keys(Dir))),
+    shell(KeyCmd),
+    !,
+    directory_file_path(Dir, ssh_host_ecdsa_key, KeyFile),
+    Options = [host_key_file(KeyFile)|Options0].
 ensure_host_keys(Options,
                  [ host_key_file('etc/ssh/ssh_host_ecdsa_key')
                  | Options
