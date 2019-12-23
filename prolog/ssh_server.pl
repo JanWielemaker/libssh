@@ -273,21 +273,23 @@ setup_signals(_Options) :-
 
 :- public run_client/6.
 
-run_client(_Server, In, Out, Err, Command, RetCode) :-
-    setup_console(In, Out, Err),
+run_client(Server, In, Out, Err, Command, RetCode) :-
+    setup_console(Server, In, Out, Err, Cleanup),
     call_cleanup(ssh_toplevel(Command, RetCode),
-                 shutdown_console).
+                 shutdown_console(Cleanup)).
 
-setup_console(In, Out, Err) :-
+setup_console(Server, In, Out, Err, Cleanup) :-
     set_stream(In,  alias(user_input)),
     set_stream(Out, alias(user_output)),
     set_stream(Err, alias(user_error)),
     set_stream(In,  alias(current_input)),
     set_stream(Out, alias(current_output)),
     enable_colors,
-    enable_line_editing.
+    enable_line_editing,
+    load_history(Server, Cleanup).
 
-shutdown_console :-
+shutdown_console(Cleanup) :-
+    save_history(Cleanup),
     disable_line_editing.
 
 :- if(setting(color_term, true)).
@@ -357,6 +359,21 @@ disable_line_editing.
 %
 %   @arg ServerName is the name provided with the name(Name) option when
 %   creating the server or the empty list.
+
+%!  load_history(+Server, -Cleanup) is det.
+%
+%   Load command line history for Server, binding Cleanup to the
+%   required command for save_history/1
+
+load_history(_, true).
+
+
+%!  save_history(+Action) is det.
+%
+%   Save the history information according to action.
+
+save_history(_).
+
 
 %!  ssh_toplevel(+Command, -RetCode)
 %
