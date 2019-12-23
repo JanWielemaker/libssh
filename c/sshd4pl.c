@@ -492,10 +492,13 @@ exec_pty(const char *mode, const char *command,
 static int
 exec_nopty(const char *command, struct channel_data_struct *cdata)
 { int in[2], out[2], err[2];
-  cmd_context *ctx = malloc(sizeof(*ctx));
+  cmd_context *ctx;
   pthread_t tid;
 
   DEBUG(1, Sdprintf("Running %s without a TTY\n", command));
+
+  if ( strcmp(command, "abort") == 0 )
+    abort();
 
   /* Do the plumbing to be able to talk with the child process. */
   if ( pipe(in) != 0 )
@@ -505,6 +508,7 @@ exec_nopty(const char *command, struct channel_data_struct *cdata)
   if ( pipe(err) != 0 )
     goto stderr_failed;
 
+  ctx = malloc(sizeof(*ctx));
   memset(ctx, 0, sizeof(*ctx));
   ctx->in      = in[0];
   ctx->out     = out[1];

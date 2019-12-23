@@ -108,6 +108,14 @@ as follows:
   - 3
     The query itself was not syntactically correct.
 
+### Aborting the server
+
+If a Prolor process with an  embedded   ssh  server misbehaves it can be
+forcefully aborted using the `abort` command.  This calls C `abort()` as
+soon as possible and  thus  should  function   even  if  Prolog  is, for
+example, stuck in a deadlock.
+
+    ssh -p 2020 localhost abort
 
 @tbd Currently only supports Unix. A Windows port is probably doable. It
 mostly requires finding a  sensible  replacement   for  the  Unix pseudo
