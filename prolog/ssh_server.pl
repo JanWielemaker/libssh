@@ -308,22 +308,40 @@ setup_signals(_Options) :-
 :- public run_client/6.
 
 run_client(Server, In, Out, Err, Command, RetCode) :-
+    set_alias,
     setup_console(Server, In, Out, Err, Cleanup),
     call_cleanup(ssh_toplevel(Command, RetCode),
                  shutdown_console(Cleanup)).
 
-setup_console(Server, In, Out, Err, Cleanup) :-
+:- if(current_predicate(thread_alias/1)).
+set_alias :-
+    current_prolog_flag(ssh_user, User),
+    thread_self(Me),
+    thread_property(Me, id(Id)),
+    format(atom(Alias), '~w@ssh/~w', [User, Id]),
+    thread_alias(Alias).
+:- endif.
+set_alias.
+
+% Used by has_console/0 in thread_util.
+
+:- dynamic thread_util:has_console/4.
+
+setup_console(Server, In, Out, Err, clean(Me, Cleanup)) :-
+    thread_self(Me),
+    assertz(thread_util:has_console(Me, In, Out, Err)),
     set_stream(In,  alias(user_input)),
     set_stream(Out, alias(user_output)),
     set_stream(Err, alias(user_error)),
     set_stream(In,  alias(current_input)),
     set_stream(Out, alias(current_output)),
     enable_colors,
-    enable_line_editing,
-    load_history(Server, Cleanup).
+    enable_line_editing(Mode),
+    load_history(Mode, Server, Cleanup).
 
-shutdown_console(Cleanup) :-
-    save_history(Cleanup),
+shutdown_console(clean(TID, History)) :-
+    retractall(thread_util:has_console(TID, _In, _Out, _Err)),
+    save_history(History),
     disable_line_editing.
 
 :- if(setting(color_term, true)).
@@ -362,19 +380,19 @@ use_editline :-
 
 :- if(use_editline).
 :- use_module(library(editline)).
-enable_line_editing :-
+enable_line_editing(editline) :-
     stream_property(user_input, tty(true)),
     !,
     debug(ssh(server), 'Setting up line editing', []),
     set_prolog_flag(tty_control, true),
     el_wrap.
 :- else.
-enable_line_editing :-
+enable_line_editing(tty) :-
     stream_property(user_input, tty(true)),
     !,
     set_prolog_flag(tty_control, true).
 :- endif.
-enable_line_editing :-
+enable_line_editing(none) :-
     set_prolog_flag(tty_control, false).
 
 :- if(current_predicate(el_unwrap/1)).
@@ -402,19 +420,21 @@ disable_line_editing.
 :- multifile
     prolog:history/2.
 
-%!  load_history(+Server, -Cleanup) is det.
+%!  load_history(+EditMode, +Server, -Cleanup) is det.
 %
 %   Load command line history for Server, binding Cleanup to the
 %   required command for save_history/1
 
-load_history(Server, save(File)) :-
+load_history(editline, Server, save(File)) :-
     history_file(Server, File,
                  [ access(read),
                    file_errors(fail)
                  ]),
     !,
     prolog:history(user_input, load(File)).
-load_history(Server, create(Server)).
+load_history(editline, Server, create(Server)) :-
+    !.
+load_history(_, _, nosave).
 
 %!  save_history(+Action) is det.
 %
