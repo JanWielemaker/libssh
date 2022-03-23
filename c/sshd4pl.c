@@ -1049,6 +1049,8 @@ pl_ssh_server(term_t options)
 
   ssh_bind_free(sshbind);
   ssh_finalize();
+  if ( server.authorizedkeys )
+    free(server.authorizedkeys);
 
   return FALSE;
 }
