@@ -3,7 +3,8 @@
     Author:        Jan Wielemaker
     E-mail:        J.Wielemaker@vu.nl
     WWW:           http://www.swi-prolog.org
-    Copyright (c)  2019, VU University Amsterdam
+    Copyright (c)  2019-2023, VU University Amsterdam
+			      SWI-Prolog Solutions b.v.
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -34,8 +35,9 @@
 
 :- module(ssh_server,
           [ ssh_server/0,
-            ssh_server/1                        % +Options
-          ]).
+            ssh_server/1,       % +Options
+	    capture_messages/1  % +Level
+	  ]).
 :- use_module(library(debug)).
 :- use_module(library(option)).
 :- use_module(library(settings)).
@@ -494,6 +496,43 @@ toplevel_finish(_, Error, 2) :-
     print_message(error, Error).
 toplevel_finish(true, _, 0).
 toplevel_finish(false, _, 1).
+
+
+		 /*******************************
+		 *       CAPTURE MESSAGES       *
+		 *******************************/
+
+:- dynamic
+       captured_messages/3.
+:- thread_local
+       thread_error_stream/1.
+
+user:message_property(Level, stream(S)) :-
+    captured_messages(Level, S, _).
+
+%!  capture_messages(+Level) is det.
+%
+%   Redirect all messages of the indicated level to the console of the
+%   current thread.  This is part of  the SSH library as it is notably
+%   practical when  connected through SSH.  Consider  using trace/1 on
+%   some predicate.  We catch capture the output using:
+%
+%       ?- capture_messages(debug).
+%       ?- trace(p/1).
+
+capture_messages(Level) :-
+    (   thread_error_stream(S)
+    ->  true
+    ;   thread_self(Me),
+	stream_property(S, alias(user_error)),
+	asserta(thread_error_stream(S)),
+	thread_at_exit(cleanup_message_capture)
+    ),
+    asserta(captured_messages(Level, S, Me)).
+
+cleanup_message_capture :-
+    thread_self(Me),
+    retractall(captured_messages(_,_,Me)).
 
 
 		 /*******************************
