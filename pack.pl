@@ -1,5 +1,5 @@
 name(libssh).
-version('0.9.1').
+version('0.9.2').
 title('Provide an embedded SSH server').
 keywords([ssh, server, debugging, management]).
 author( 'Jan Wielemaker', 'jan@swi-prolog.org' ).
